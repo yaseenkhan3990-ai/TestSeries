@@ -1,5 +1,4 @@
 import SourcePanel from './SourcePanel'
-import TextParserPanel from './TextParserPanel'
 
 export default function Sidebar({
   aiConfigured,
@@ -10,11 +9,16 @@ export default function Sidebar({
   isLoading,
   onAiEnabledChange,
   onAiExtract,
-  onParse,
   pdfPayload,
-  rawText,
-  setRawText,
   status,
+  isPhoto,
+  photoUrl,
+  timerDuration,
+  setTimerDuration,
+  timerMode,
+  setTimerMode,
+  languages,
+  setLanguages,
 }) {
   return (
     <aside className="space-y-6">
@@ -29,12 +33,14 @@ export default function Sidebar({
         onAiExtract={onAiExtract}
         pdfPayload={pdfPayload}
         status={status}
-      />
-      <TextParserPanel
-        isLoading={isLoading}
-        onParse={onParse}
-        rawText={rawText}
-        setRawText={setRawText}
+        isPhoto={isPhoto}
+        photoUrl={photoUrl}
+        timerDuration={timerDuration}
+        setTimerDuration={setTimerDuration}
+        timerMode={timerMode}
+        setTimerMode={setTimerMode}
+        languages={languages}
+        setLanguages={setLanguages}
       />
     </aside>
   )

@@ -1,22 +1,25 @@
 export default function TextParserPanel({ isLoading, onParse, rawText, setRawText }) {
   return (
-    <section className="rounded-md border border-[#dde8ee] bg-white p-5 shadow-sm">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-black text-[#172b4d]">Extracted text</h2>
+    <section className="glass-panel p-5 space-y-4 animate-slide-up">
+      <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+        <h2 className="text-lg font-black text-slate-800 tracking-wide flex items-center gap-2">
+          <span className="flex h-2.5 w-2.5 rounded-full bg-indigo-500" />
+          Raw Extracted Text
+        </h2>
         <button
           type="button"
           onClick={onParse}
           disabled={!rawText.trim() || isLoading}
-          className="rounded-md bg-[#172b4d] px-3 py-2 text-xs font-bold text-white transition hover:bg-[#243b61] disabled:cursor-not-allowed disabled:bg-[#ccd6dd]"
+          className="rounded-lg bg-indigo-600 px-4 py-2 text-xs font-black text-white hover:bg-indigo-700 shadow-md shadow-indigo-100 transition active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-400 disabled:shadow-none"
         >
-          Parse
+          Parse Text
         </button>
       </div>
       <textarea
         value={rawText}
         onChange={(event) => setRawText(event.target.value)}
-        className="mt-4 h-72 w-full resize-y rounded-md border border-[#cbd6df] bg-[#fbfdfe] p-3 text-sm leading-6 text-[#1f2933] shadow-inner"
-        placeholder="PDF text will appear here. You can also paste questions in any language."
+        className="h-64 w-full resize-none rounded-xl border border-slate-200 bg-white/50 p-3.5 text-xs font-semibold leading-relaxed text-slate-700 placeholder-slate-400 shadow-inner focus:border-indigo-500 transition scrollbar-none"
+        placeholder="Extracted text will appear here automatically. You can also paste raw questions and answers directly to test them."
       />
     </section>
   )

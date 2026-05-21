@@ -34,7 +34,7 @@ function sendJson(response, statusCode, payload) {
   response.writeHead(statusCode, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, x-gemini-key',
     'Content-Type': 'application/json',
   })
   response.end(JSON.stringify(payload))
@@ -88,8 +88,11 @@ function ensureApiKey() {
   }
 }
 
-async function callGemini(parts) {
-  ensureApiKey()
+async function callGemini(parts, clientApiKey) {
+  const activeKey = clientApiKey || API_KEY
+  if (!activeKey) {
+    throw new Error('Gemini API key is missing. Please add an API Key in the API Key Manager or configure the server environment.')
+  }
 
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
   const controller = new AbortController()
@@ -99,7 +102,7 @@ async function callGemini(parts) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-goog-api-key': API_KEY,
+      'x-goog-api-key': activeKey,
     },
     signal: controller.signal,
     body: JSON.stringify({
@@ -159,15 +162,20 @@ function normalizeAiQuestions(questions = []) {
 }
 
 async function handleExtractPdf(request, response) {
+  const clientKey = request.headers['x-gemini-key']
   const body = await readJson(request)
 
   if (!body.data) {
-    sendJson(response, 400, { error: 'PDF data is required.' })
+    sendJson(response, 400, { error: 'PDF or Image data is required.' })
     return
   }
 
   const requestedCount = Math.min(Math.max(Number(body.questionCount || 10), 1), 25)
   const shouldGenerateFromContext = body.mode !== 'extract'
+  const targetLanguages = body.languages && Array.isArray(body.languages) && body.languages.length > 0
+    ? body.languages.join(', ')
+    : 'Original language of the document'
+
   const result = await callGemini([
     {
       inline_data: {
@@ -176,45 +184,41 @@ async function handleExtractPdf(request, response) {
       },
     },
     {
-      text: `Read and understand this PDF in its original language or languages. It may be text-based, scanned, handwritten-looking, or use custom font encodings.
+      text: `Read and understand this document (which can be a PDF or image file containing questions or study material) in its original language. It may be text-based, scanned, hand-written, or a photo of a printed page.
 
-Your job is to analyze the PDF context first, find any objective questions already present, and then make the best possible objective questions from the actual PDF content.
+Your job is to analyze the document content, find objective questions already present, or generate excellent objective MCQs based on the content.
 Return JSON only in this exact shape:
 {
-  "languageSummary": "languages detected in the PDF",
-  "contextSummary": "short summary of the PDF's main topics and learning points",
+  "languageSummary": "languages detected in the document",
+  "contextSummary": "short summary of the document's main topics and learning points",
   "mode": "found-and-generated",
   "questions": [
     {
       "sourceNumber": "1",
       "language": "language used for this question",
-      "topic": "topic from the PDF",
+      "topic": "topic from the document",
       "difficulty": "easy, medium, or hard",
       "text": "question text",
       "options": [
         { "key": "A", "label": "A", "text": "option text" }
       ],
       "correctOption": "A",
-      "explanation": "short answer explanation in the same language as the question"
+      "explanation": "short answer explanation"
     }
   ],
   "notes": "short note"
 }
 Rules:
-- Preserve the PDF's language. If the PDF has multiple languages, create questions in the language of the source section they come from.
-- Do not translate unless the PDF itself is bilingual or mixed-language.
-- ${shouldGenerateFromContext ? `Return up to ${requestedCount} high-quality objective MCQ questions total. First include useful objective questions already found in the PDF, then generate more from the PDF context until the set is strong and complete.` : 'Extract real objective questions and visible answer keys from the PDF.'}
-- Before writing questions, infer the main concepts, definitions, formulas, events, examples, and conclusions from the PDF.
-- Cover different important parts of the PDF instead of making many questions from one paragraph.
-- Prefer conceptual understanding, factual recall, cause/effect, comparison, and application questions that a teacher could ask after reading this PDF.
-- Every generated question must have 4 options, exactly one correctOption, and a short explanation in the same language as the question.
-- If an existing PDF question has fewer than 4 options, keep it only when it is clearly objective; otherwise replace it with a better generated MCQ from the same topic.
-- Keep distractor options plausible but clearly wrong according to the PDF.
-- key must always be A, B, C, D, E, or F. label may use the PDF's original option style if useful.
-- Use native PDF understanding/OCR when browser text extraction is broken.
-- Do not invent facts beyond the PDF content.`,
+- TARGET LANGUAGES: You MUST generate/translate all questions, options, and explanations into these target languages: "${targetLanguages}". If the target languages are "Original language of the document", preserve the language of the source. If multiple languages are requested, provide questions in those selected languages or a mixed/bilingual format.
+- ${shouldGenerateFromContext ? `Return up to ${requestedCount} high-quality objective MCQ questions total. First include useful objective questions already found, then generate more from the context until the set is strong and complete.` : 'Extract real objective questions and visible answer keys.'}
+- Before writing questions, infer the main concepts, definitions, formulas, events, examples, and conclusions.
+- Cover different important parts of the document instead of making many questions from one paragraph.
+- Every generated question must have 4 options, exactly one correctOption, and a short explanation.
+- Distractor options must be plausible but clearly wrong according to the document.
+- key must always be A, B, C, D, E, or F.
+- Do not invent facts beyond the document content.`,
     },
-  ])
+  ], clientKey)
 
   sendJson(response, 200, {
     questions: normalizeAiQuestions(result.questions),
@@ -225,7 +229,60 @@ Rules:
   })
 }
 
+async function handleGenerateStory(request, response) {
+  const clientKey = request.headers['x-gemini-key']
+  const body = await readJson(request)
+
+  if (!body.questions || !Array.isArray(body.questions) || body.questions.length === 0) {
+    sendJson(response, 400, { error: 'Questions are required to generate a story.' })
+    return
+  }
+
+  const formattedQuestions = body.questions.map((q, idx) => {
+    const correctOptObj = q.options.find(o => o.key === q.correctOption)
+    const answerText = correctOptObj ? `${correctOptObj.label || correctOptObj.key}: ${correctOptObj.text}` : q.correctOption
+    return `Question ${q.sourceNumber || idx + 1}: ${q.text}\nCorrect Answer: ${answerText}\nExplanation: ${q.explanation || ''}`
+  }).join('\n\n')
+
+  try {
+    const result = await callGemini([
+      {
+        text: `You are an expert mnemonic educator, creative writer, and memory champion.
+Your job is to read these objective questions, their correct answers, and explanations, and write a single, highly engaging, cohesive, and creative "realistic story" or narrative that weaves ALL correct answers and concepts together in a logical flow.
+
+This will help students remember the correct answers perfectly through visual, emotional, or situational association!
+
+Here are the Questions and Answers:
+${formattedQuestions}
+
+Instructions for outputting JSON:
+Return JSON only in this exact shape:
+{
+  "story": "The complete narrative story formatted in markdown. Make it vivid, highly interesting, and reference the questions in brackets where their answers appear, e.g., '[Question 1 Answer]'. Keep the story language matching the questions' language (or bilingual Hinglish/Hindi as popular).",
+  "mnemonics": [
+    "A concise bullet-point list of quick mnemonic hooks connecting each Question number to its visual memory anchor in the story."
+  ]
+}
+
+Rules:
+- Create a single, continuous, logical story. Do NOT just list bullet points or write disconnected paragraphs.
+- Keep the narrative extremely memorable, funny, realistic, or dramatic.
+- Use simple terms so it is easy to understand.
+- Bold the correct answers/key concepts inside the story.`,
+      },
+    ], clientKey)
+
+    sendJson(response, 200, {
+      story: String(result.story || ''),
+      mnemonics: Array.isArray(result.mnemonics) ? result.mnemonics : [],
+    })
+  } catch (error) {
+    sendJson(response, 500, { error: `Mnemonic generation failed: ${error.message}` })
+  }
+}
+
 async function handleCheckAnswer(request, response) {
+  const clientKey = request.headers['x-gemini-key']
   const body = await readJson(request)
 
   if (!body.question?.text || !Array.isArray(body.question?.options) || !body.selectedOption) {
@@ -253,7 +310,7 @@ Rules:
 - correctOption must be one option key from the options list.
 - Explanation should be short, student-friendly, and in the same language as the question when possible.`,
     },
-  ])
+  ], clientKey)
 
   sendJson(response, 200, {
     correctOption: String(result.correctOption || '').trim().toUpperCase(),
@@ -271,8 +328,10 @@ const server = http.createServer(async (request, response) => {
 
   try {
     if (request.method === 'GET' && request.url === '/api/health') {
+      const clientKey = request.headers['x-gemini-key']
+      const activeKey = clientKey || API_KEY
       sendJson(response, 200, {
-        configured: Boolean(API_KEY),
+        configured: Boolean(activeKey),
         model: MODEL,
       })
       return
@@ -280,6 +339,11 @@ const server = http.createServer(async (request, response) => {
 
     if (request.method === 'POST' && request.url === '/api/extract-pdf') {
       await handleExtractPdf(request, response)
+      return
+    }
+
+    if (request.method === 'POST' && request.url === '/api/generate-story') {
+      await handleGenerateStory(request, response)
       return
     }
 

@@ -20,10 +20,15 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 90000) {
   }
 }
 
-async function postJson(path, body, timeoutMs) {
+async function postJson(path, body, timeoutMs, apiKey) {
+  const headers = { 'Content-Type': 'application/json' }
+  if (apiKey) {
+    headers['x-gemini-key'] = apiKey
+  }
+
   const response = await fetchWithTimeout(`${AI_API_BASE}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   }, timeoutMs)
   const payload = await response.json()
@@ -35,22 +40,33 @@ async function postJson(path, body, timeoutMs) {
   return payload
 }
 
-export async function getAiHealth() {
-  const response = await fetchWithTimeout(`${AI_API_BASE}/api/health`, {}, 5000)
+export async function getAiHealth(apiKey = '') {
+  const headers = {}
+  if (apiKey) {
+    headers['x-gemini-key'] = apiKey
+  }
+  const response = await fetchWithTimeout(`${AI_API_BASE}/api/health`, { headers }, 5000)
   return response.json()
 }
 
-export function extractPdfWithAi(pdfPayload) {
+export function extractPdfWithAi(pdfPayload, languages = [], apiKey = '') {
   return postJson('/api/extract-pdf', {
     ...pdfPayload,
     mode: 'generate',
     questionCount: 10,
-  }, 120000)
+    languages,
+  }, 120000, apiKey)
 }
 
-export function checkAnswerWithAi(question, selectedOption) {
+export function generateStoryWithAi(questions, apiKey = '') {
+  return postJson('/api/generate-story', {
+    questions,
+  }, 90000, apiKey)
+}
+
+export function checkAnswerWithAi(question, selectedOption, apiKey = '') {
   return postJson('/api/check-answer', {
     question,
     selectedOption,
-  }, 45000)
+  }, 45000, apiKey)
 }
